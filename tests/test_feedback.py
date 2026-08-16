@@ -112,6 +112,23 @@ class TestMockRenderView:
         result = mock_command("render_view", {})
         assert "deltas" not in result
 
+    def test_capture_viewport_requested_defaults(self):
+        result = mock_command("capture_viewport", {})
+        assert result["view"] == "isometric"
+        assert (result["width"], result["height"]) == (1280, 1280)
+        assert result["fit_to_model"] is True
+        assert base64.b64decode(result["image_base64"])[:8] == b"\x89PNG\r\n\x1a\n"
+
+    @pytest.mark.parametrize("key,value", [("width", 63), ("height", 4097), ("width", "1280")])
+    def test_capture_viewport_rejects_invalid_dimensions(self, key, value):
+        with pytest.raises(ValueError, match=key):
+            mock_command("capture_viewport", {key: value})
+
+    def test_capture_model_views_returns_four_images(self):
+        result = mock_command("capture_model_views", {})
+        assert result["views"] == ["isometric", "top", "front", "right"]
+        assert len(result["images"]) == 4
+
 
 class TestFormatResult:
     """_format_result converts mock/addon envelopes to MCP content blocks."""
@@ -179,6 +196,11 @@ class TestFormatResult:
         assert kinds == ["text", "image"]
         assert out[1].mimeType == "image/png"
         assert out[1].data == result["image_base64"]
+
+    def test_capture_model_views_returns_four_image_blocks(self):
+        out = _format_result("capture_model_views", mock_command("capture_model_views", {}))
+        assert [block.type for block in out] == ["text", "image", "image", "image", "image"]
+        assert all(block.mimeType == "image/png" for block in out[1:])
 
     def test_non_dict_result(self):
         out = _format_result("ping", "pong")

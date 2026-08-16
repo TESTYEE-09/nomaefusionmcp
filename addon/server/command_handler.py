@@ -215,6 +215,8 @@ class CommandHandler:
                 "set_design_type": self.set_design_type,
                 # perception
                 "render_view": self.render_view,
+                "capture_viewport": self.capture_viewport,
+                "capture_model_views": self.capture_model_views,
             }
 
         cmd_type = command.get("type")
@@ -2260,17 +2262,19 @@ class CommandHandler:
 
         measure = self.app.measureManager
         result = measure.measureMinimumDistance(e1, e2)
+        point_one = result.positionOne
+        point_two = result.positionTwo
         return {
             "distance": result.value,
             "point_one": [
-                result.pointOnEntityOne.x,
-                result.pointOnEntityOne.y,
-                result.pointOnEntityOne.z,
+                point_one.x,
+                point_one.y,
+                point_one.z,
             ],
             "point_two": [
-                result.pointOnEntityTwo.x,
-                result.pointOnEntityTwo.y,
-                result.pointOnEntityTwo.z,
+                point_two.x,
+                point_two.y,
+                point_two.z,
             ],
         }
 
@@ -3153,6 +3157,67 @@ class CommandHandler:
             "image_format": "png",
             "image_base64": base64.b64encode(data).decode("ascii"),
             "bytes": len(data),
+            "design_name": getattr(self.app.activeDocument, "name", None),
+            "camera": self._camera_info(),
+        }
+
+    @staticmethod
+    def _validate_capture_dimensions(width, height):
+        for name, value in (("width", width), ("height", height)):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise RuntimeError(f"{name} must be an integer")
+            if not 64 <= value <= 4096:
+                raise RuntimeError(f"{name} must be between 64 and 4096 pixels")
+
+    def capture_viewport(
+        self,
+        view: str = "isometric",
+        width: int = 1280,
+        height: int = 1280,
+        fit_to_model: bool = True,
+    ):
+        """Requested public viewport-capture interface.
+
+        ``render_view`` remains as a backward-compatible alias with its original
+        arguments and defaults.
+        """
+        self._validate_capture_dimensions(width, height)
+        normalized_view = "iso" if view == "isometric" else view
+        result = self.render_view(normalized_view, width, height, fit_to_model)
+        result["view"] = view
+        result["fit_to_model"] = bool(fit_to_model)
+        return result
+
+    def capture_model_views(
+        self,
+        width: int = 1024,
+        height: int = 1024,
+        fit_to_model: bool = True,
+    ):
+        """Capture four dependable canonical views as independent PNG blocks."""
+        self._validate_capture_dimensions(width, height)
+        images = []
+        total_bytes = 0
+        for view in ("isometric", "top", "front", "right"):
+            capture = self.capture_viewport(view, width, height, fit_to_model)
+            total_bytes += capture["bytes"]
+            images.append(
+                {
+                    "view": view,
+                    "data": capture["image_base64"],
+                    "mime_type": "image/png",
+                    "bytes": capture["bytes"],
+                }
+            )
+        return {
+            "views": [image["view"] for image in images],
+            "width": width,
+            "height": height,
+            "fit_to_model": bool(fit_to_model),
+            "image_format": "png",
+            "images": images,
+            "bytes": total_bytes,
+            "design_name": getattr(self.app.activeDocument, "name", None),
         }
 
     def _orient_camera(self, viewport, spec):

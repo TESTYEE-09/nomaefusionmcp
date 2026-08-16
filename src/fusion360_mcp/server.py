@@ -24,6 +24,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("fusion360_mcp.server")
 
+CAD_AGENT_INSTRUCTIONS = """For Fusion CAD work, inspect the current scene first, perform only
+a small number of geometry operations, then call capture_viewport and visually inspect the
+result. Verify dimensions and relationships with exact Fusion tools before continuing; vision
+is supplementary, never a substitute for measurements. For assemblies, moving parts, or
+print-in-place geometry use get_scene_info, get_object_info, get_bounding_box,
+measure_distance, check_interference, and capture_viewport together. If you start repeatedly
+reconsidering or replacing the same geometry in text, stop and inspect Fusion with a
+screenshot. Continue only when the screenshot and exact checks agree."""
+
 
 def _send(
     mode: str,
@@ -50,6 +59,7 @@ _SPECIAL_KEYS = {
     "traceback",
     "deltas",
     "image_base64",
+    "images",
 }
 
 
@@ -124,14 +134,22 @@ def _format_result(
     ]
 
     # render_view: attach the PNG as an image block so vision models can see it.
-    image_b64 = result.get("image_base64")
-    if isinstance(image_b64, str) and image_b64:
-        img_format = result.get("image_format", "png")
+    images = result.get("images")
+    if not isinstance(images, list):
+        image_b64 = result.get("image_base64")
+        images = (
+            [{"data": image_b64, "mime_type": f"image/{result.get('image_format', 'png')}"}]
+            if isinstance(image_b64, str) and image_b64
+            else []
+        )
+    for image in images:
+        if not isinstance(image, dict) or not isinstance(image.get("data"), str):
+            continue
         content.append(
             types.ImageContent(
                 type="image",
-                data=image_b64,
-                mimeType=f"image/{img_format}",
+                data=image["data"],
+                mimeType=image.get("mime_type", "image/png"),
             )
         )
     return content
@@ -162,7 +180,7 @@ def _format_result(
 def main(mode: str, host: str, port: int) -> int:
     """Fusion360 MCP Server — connects Claude to Fusion 360."""
 
-    app = Server("fusion360-mcp-server")
+    app = Server("fusion360-mcp-server", instructions=CAD_AGENT_INSTRUCTIONS)
 
     # ── tools ────────────────────────────────────────────────────────
 

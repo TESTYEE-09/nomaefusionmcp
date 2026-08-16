@@ -2232,6 +2232,44 @@ TOOLS: list[dict] = [
     },
     # ── perception ──────────────────────────────────────────────────────
     {
+        "name": "capture_viewport",
+        "title": "Capture Fusion Viewport",
+        "description": (
+            "Capture the actual active Fusion 360 viewport as a PNG MCP image. "
+            "Use screenshots for spatial sanity checks, then use measurement, "
+            "bounding-box, and interference tools for exact verification."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "view": {
+                    "type": "string",
+                    "enum": ["current", "isometric", "top", "front", "right", "left", "back", "bottom"],
+                    "default": "isometric",
+                },
+                "width": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1280},
+                "height": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1280},
+                "fit_to_model": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "capture_model_views",
+        "title": "Capture Four Model Views",
+        "description": (
+            "Capture isometric, top, front, and right viewport PNGs and return "
+            "all four as MCP image content blocks."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "width": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024},
+                "height": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024},
+                "fit_to_model": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
         "name": "render_view",
         "title": "Render Viewport",
         "description": (
@@ -2303,6 +2341,8 @@ _READ_ONLY = {
     "cam_get_operation_info",
     "get_design_type",
     "render_view",
+    "capture_viewport",
+    "capture_model_views",
 }
 _DESTRUCTIVE = {"delete_all", "delete_parameter"}
 _IDEMPOTENT = {
@@ -2325,6 +2365,8 @@ _IDEMPOTENT = {
     "set_design_type",
     "rename_body",
     "render_view",
+    "capture_viewport",
+    "capture_model_views",
 }
 
 for _t in TOOLS:

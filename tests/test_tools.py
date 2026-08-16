@@ -177,7 +177,9 @@ def test_expected_tools_present():
         # utility
         "rename_body",
         # perception
-        "render_view",
+            "render_view",
+            "capture_viewport",
+            "capture_model_views",
     }
     missing = expected - names
     assert not missing, f"Missing tools: {missing}"

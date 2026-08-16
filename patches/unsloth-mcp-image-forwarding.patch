@@ -1,0 +1,85 @@
+diff --git a/studio/backend/core/inference/mcp_client.py b/studio/backend/core/inference/mcp_client.py
+--- a/studio/backend/core/inference/mcp_client.py
++++ b/studio/backend/core/inference/mcp_client.py
+@@ -878,7 +878,7 @@ def _flatten_result(result: Any) -> str:
+         notes = []
+         if images:
+             n = len(images)
+-            notes.append(f"{n} image{'s' if n > 1 else ''} attached; displayed to the user")
++            notes.append(f"{n} image{'s' if n > 1 else ''} attached for visual inspection")
+         if omitted:
+             notes.append(f"{omitted} image{'s' if omitted > 1 else ''} omitted (too large)")
+diff --git a/studio/backend/core/inference/tool_loop_controller.py b/studio/backend/core/inference/tool_loop_controller.py
+--- a/studio/backend/core/inference/tool_loop_controller.py
++++ b/studio/backend/core/inference/tool_loop_controller.py
+@@ -138,9 +138,16 @@ class ToolCallCompletion:
+         if not self.executed:
+             return {"role": "user", "content": self.result}
+ 
+-        content = strip_result_for_model(self.result, self.decision.tool_name)
++        content = (
++            mcp_result_content_for_model(self.result)
++            if self.decision.tool_name.startswith("mcp__")
++            else strip_result_for_model(self.result, self.decision.tool_name)
++        )
+         if self.is_error:
+-            content = content + TOOL_ERROR_NUDGE
++            if isinstance(content, list):
++                content[0]["text"] = content[0]["text"] + TOOL_ERROR_NUDGE
++            else:
++                content = content + TOOL_ERROR_NUDGE
+         message: dict[str, Any] = {
+             "role": "tool",
+@@ -255,27 +262,49 @@ def is_tool_error(result: str) -> bool:
+-def _strip_mcp_image_suffix(result: str) -> str:
++def _split_mcp_image_suffix(result: str) -> tuple[str, list[dict[str, str]]]:
+     """Drop a trailing __MCP_IMAGES__ envelope only when it is the valid JSON
+     image array appended by _flatten_result, so legit tool text that merely
+     mentions the marker is not truncated."""
+     head, sep, payload = result.rpartition("\n__MCP_IMAGES__:")
+     if not sep:
+-        return result
++        return result, []
+     try:
+         images = json.loads(payload)
+     except (ValueError, RecursionError):
+-        return result
++        return result, []
+     if not isinstance(images, list) or not images:
+-        return result
++        return result, []
+     if not all(
+         isinstance(img, dict)
+         and isinstance(img.get("data"), str)
+         and isinstance(img.get("mimeType"), str)
+         for img in images
+     ):
+-        return result
+-    return head.rstrip()
++        return result, []
++    return head.rstrip(), images
++
++
++def _strip_mcp_image_suffix(result: str) -> str:
++    return _split_mcp_image_suffix(result)[0]
++
++
++def mcp_result_content_for_model(result: str) -> str | list[dict[str, Any]]:
++    """Convert MCP ImageContent into Studio's normal multimodal parts."""
++    text, images = _split_mcp_image_suffix(result)
++    if not images:
++        return text
++    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
++    for image in images:
++        parts.append(
++            {
++                "type": "image_url",
++                "image_url": {
++                    "url": f"data:{image['mimeType']};base64,{image['data']}",
++                },
++            }
++        )
++    return parts
+ 
+ 
+ def _strip_files_sentinel(result: str) -> str:
