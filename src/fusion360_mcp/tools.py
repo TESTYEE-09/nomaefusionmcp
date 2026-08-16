@@ -1480,25 +1480,6 @@ TOOLS: list[dict] = [
         },
     },
     {
-        "name": "create_print_in_place_gyro",
-        "title": "Create Print-in-place Gyro",
-        "description": (
-            "Build a complete, named three-body concentric gyro/spinner in one "
-            "reliable call, with explicit radial clearance. Dimensions are mm. "
-            "Use this instead of dozens of sketch, cut, and rename calls."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "overall_diameter_mm": {"type": "number", "default": 60, "minimum": 30},
-                "thickness_mm": {"type": "number", "default": 10, "minimum": 2},
-                "ring_wall_mm": {"type": "number", "default": 4, "minimum": 1.2},
-                "clearance_mm": {"type": "number", "default": 0.6, "minimum": 0.3},
-                "clear_existing": {"type": "boolean", "default": False},
-            },
-        },
-    },
-    {
         "name": "create_sphere",
         "title": "Create Sphere",
         "description": (
@@ -2483,7 +2464,6 @@ COMPACT_TOOL_NAMES = frozenset(
         "capture_viewport",
         "capture_model_views",
         "create_annular_ring",
-        "create_print_in_place_gyro",
     }
 )
 

@@ -141,16 +141,6 @@ class TestMockSketch:
         assert result["body_name"] == "Outer_Frame"
         assert result["outer_diameter_mm"] == 60
 
-    def test_create_print_in_place_gyro(self):
-        result = mock_command(
-            "create_print_in_place_gyro", {"clearance_mm": 0.6}
-        )
-        assert result["complete"] is True
-        assert result["body_names"] == [
-            "Outer_Frame", "Middle_Gimbal", "Central_Rotor"
-        ]
-        assert result["minimum_radial_clearance_mm"] == 0.6
-
 
 class TestMockFeatures:
     def test_extrude(self):

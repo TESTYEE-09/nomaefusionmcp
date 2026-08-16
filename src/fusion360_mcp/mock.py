@@ -44,7 +44,6 @@ _MUTATION_MOCKS: frozenset[str] = frozenset(
         "create_sphere",
         "create_torus",
         "create_annular_ring",
-        "create_print_in_place_gyro",
         "thicken_surface",
         "patch_surface",
         "stitch_surfaces",
@@ -970,19 +969,6 @@ def _create_annular_ring(p: dict) -> dict:
     }
 
 
-def _create_print_in_place_gyro(p: dict) -> dict:
-    return {
-        "created": True,
-        "complete": True,
-        "body_names": ["Outer_Frame", "Middle_Gimbal", "Central_Rotor"],
-        "overall_diameter_mm": p.get("overall_diameter_mm", 60),
-        "thickness_mm": p.get("thickness_mm", 10),
-        "minimum_radial_clearance_mm": p.get("clearance_mm", 0.6),
-        "interference_expected": False,
-        "next_action": "capture_viewport then check_interference",
-    }
-
-
 # ── default fallback ─────────────────────────────────────────────────
 
 
@@ -999,7 +985,6 @@ _DISPATCH: dict[str, Any] = {
     "get_bounding_box": _get_bounding_box,
     "create_sketch": _create_sketch,
     "create_annular_ring": _create_annular_ring,
-    "create_print_in_place_gyro": _create_print_in_place_gyro,
     "draw_rectangle": _draw_rectangle,
     "draw_circle": _draw_circle,
     "draw_line": _draw_line,

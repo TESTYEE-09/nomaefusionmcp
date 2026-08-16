@@ -87,7 +87,6 @@ class CommandHandler:
             "create_sphere",
             "create_torus",
             "create_annular_ring",
-            "create_print_in_place_gyro",
             # surface / sheet metal (can produce / thicken bodies)
             "thicken_surface",
             "patch_surface",
@@ -169,7 +168,6 @@ class CommandHandler:
                 "create_sphere": self.create_sphere,
                 "create_torus": self.create_torus,
                 "create_annular_ring": self.create_annular_ring,
-                "create_print_in_place_gyro": self.create_print_in_place_gyro,
                 # construction geometry
                 "create_construction_plane": self.create_construction_plane,
                 "create_construction_axis": self.create_construction_axis,
@@ -2075,63 +2073,6 @@ class CommandHandler:
             "created": True, "body_name": body.name, "sketch_name": sketch.name,
             "feature_name": feature.name, "outer_diameter_mm": outer_diameter_mm,
             "inner_diameter_mm": inner_diameter_mm, "thickness_mm": thickness_mm,
-        }
-
-    def create_print_in_place_gyro(
-        self, overall_diameter_mm=60, thickness_mm=10, ring_wall_mm=4,
-        clearance_mm=0.6, clear_existing=False,
-    ):
-        diameter = float(overall_diameter_mm)
-        wall = float(ring_wall_mm)
-        clearance = float(clearance_mm)
-        thickness = float(thickness_mm)
-        outer_inner = diameter - 2 * wall
-        middle_outer = outer_inner - 2 * clearance
-        middle_inner = middle_outer - 2 * wall
-        rotor_diameter = middle_inner - 2 * clearance
-        if min(outer_inner, middle_outer, middle_inner, rotor_diameter) <= 0:
-            raise ValueError("Diameter is too small for the requested walls and clearances")
-        root = self._root()
-        if clear_existing:
-            self.delete_all()
-            root = self._root()
-        elif root.bRepBodies.count:
-            raise ValueError(
-                "Design already contains bodies; use clear_existing=true only when safe"
-            )
-        created = []
-        for od, ident, name in (
-            (diameter, outer_inner, "Outer_Frame"),
-            (middle_outer, middle_inner, "Middle_Gimbal"),
-        ):
-            body, _, _ = self._annular_ring_mm(od, ident, thickness, name)
-            created.append(body.name)
-        # The central rotor is a named cylinder, created symmetrically to match rings.
-        sketch = root.sketches.add(root.xYConstructionPlane)
-        sketch.name = "Central_Rotor_Profile"
-        sketch.sketchCurves.sketchCircles.addByCenterRadius(
-            adsk.core.Point3D.create(0, 0, 0), rotor_diameter / 20.0
-        )
-        profile = sketch.profiles.item(0)
-        ext_input = root.features.extrudeFeatures.createInput(
-            profile, adsk.fusion.FeatureOperations.NewBodyFeatureOperation
-        )
-        ext_input.setSymmetricExtent(
-            adsk.core.ValueInput.createByReal(thickness / 10.0), True
-        )
-        feature = root.features.extrudeFeatures.add(ext_input)
-        rotor = feature.bodies.item(0)
-        rotor.name = "Central_Rotor"
-        created.append(rotor.name)
-        return {
-            "created": True,
-            "complete": True,
-            "body_names": created,
-            "overall_diameter_mm": diameter,
-            "thickness_mm": thickness,
-            "minimum_radial_clearance_mm": clearance,
-            "interference_expected": False,
-            "next_action": "capture_viewport then check_interference",
         }
 
     def create_sphere(

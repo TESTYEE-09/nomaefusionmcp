@@ -31,9 +31,11 @@ log = logging.getLogger("fusion360_mcp.server")
 
 CAD_AGENT_INSTRUCTIONS = """Act, inspect, verify, repeat. Do not end a turn with
 a progress report while requested CAD work remains. Prefer resident high-level
-tools (especially create_annular_ring and create_print_in_place_gyro) over long
-sketch/cut chains. Two concentric sketch circles form an annular profile and can
-be extruded directly; no cut is required. After an error preserve successful
+tools (especially create_annular_ring and run_fusion_sequence) over long
+single-call chains. The model must choose the design; use run_fusion_sequence
+only to execute the model's own ordered operations. Two concentric circles form
+an annular profile and can be extruded directly; no cut is required. After an
+error preserve successful
 geometry, inspect scene state, and retry only the failed step. Use viewport
 images for shape/orientation and Fusion measurements for exact dimensions,
 clearance, and interference. Do not narrate routine calls."""
@@ -72,6 +74,41 @@ _COMPACT_GATEWAY_TOOLS = [
             "properties": {
                 "tool": {"type": "string"},
                 "arguments": {"type": "object", "additionalProperties": True},
+            },
+        },
+        annotations=types.ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=False
+        ),
+    ),
+    types.Tool(
+        name="run_fusion_sequence",
+        description=(
+            "Execute your own ordered Fusion operation plan in one MCP call. "
+            "You choose every tool and argument; execution stops safely on the "
+            "first failed step by default. Use for routine dependent geometry, "
+            "then inspect and verify with separate resident tools."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["steps"],
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "items": {
+                        "type": "object",
+                        "required": ["tool", "arguments"],
+                        "properties": {
+                            "tool": {"type": "string"},
+                            "arguments": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
+                        },
+                    },
+                },
+                "continue_on_error": {"type": "boolean", "default": False},
             },
         },
         annotations=types.ToolAnnotations(
@@ -273,6 +310,68 @@ def main(mode: str, host: str, port: int, tool_profile: str) -> int:
                     "run_fusion_tool requires tool:string and arguments:object"
                 )
             name, arguments = requested_name, requested_args
+
+        if name == "run_fusion_sequence" and tool_profile == "compact":
+            steps = arguments.get("steps")
+            if not isinstance(steps, list) or not 1 <= len(steps) <= 32:
+                raise ValueError("run_fusion_sequence requires 1-32 steps")
+            continue_on_error = bool(arguments.get("continue_on_error", False))
+            results = []
+            for index, step in enumerate(steps, start=1):
+                if not isinstance(step, dict):
+                    raise ValueError(f"step {index} must be an object")
+                step_name = step.get("tool")
+                step_args = step.get("arguments")
+                if not isinstance(step_name, str) or not isinstance(step_args, dict):
+                    raise ValueError(
+                        f"step {index} requires tool:string and arguments:object"
+                    )
+                if step_name in {
+                    "run_fusion_tool",
+                    "run_fusion_sequence",
+                    "find_fusion_tools",
+                }:
+                    raise ValueError(
+                        f"step {index} cannot call gateway tool {step_name}"
+                    )
+                if not get_tool_by_name(step_name):
+                    raise ValueError(f"step {index} uses unknown tool: {step_name}")
+                try:
+                    step_result = _send(
+                        mode, step_name, step_args, host=host, port=port
+                    )
+                except Exception as exc:
+                    reset_connection()
+                    step_result = {"ok": False, "error_message": str(exc)}
+                results.append(
+                    {"step": index, "tool": step_name, "result": step_result}
+                )
+                if isinstance(step_result, dict) and step_result.get("ok") is False:
+                    if not continue_on_error:
+                        break
+            completed = len(results)
+            failed = next(
+                (item for item in results if item["result"].get("ok") is False), None
+            )
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "ok": failed is None,
+                            "completed_steps": completed,
+                            "requested_steps": len(steps),
+                            "failed_step": failed,
+                            "results": results,
+                            "next_action": (
+                                "inspect scene and continue from the first "
+                                "missing operation"
+                            ),
+                        },
+                        separators=(",", ":"),
+                    ),
+                )
+            ]
 
         tool_def = get_tool_by_name(name)
         if not tool_def:

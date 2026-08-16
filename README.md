@@ -9,15 +9,15 @@ Vision model ↔ MCP stdio server ↔ TCP :9876 ↔ Fusion add-in ↔ Fusion API
 ```
 
 The default compact profile is designed for Qwen3.8-27B Q3 and other
-small-context models. All 93 Fusion tools remain available without placing all
-93 schemas in every prompt.
+small-context models. All 92 Fusion tools remain available without placing all
+92 schemas in every prompt.
 
 ## Context reduction
 
 | Profile | Resident tools | Qwen prompt | 5,632-token context |
 |---|---:|---:|---|
 | `compact` (default) | 12 including gateways | Small enough for 5–12k contexts | Works |
-| `full` | 93 | Large | Use with large-context models |
+| `full` | 92 | Large | Use with large-context models |
 
 Compact mode reduced the tested prompt by about 90%. It keeps common inspection
 and viewport tools resident and loads uncommon schemas only when requested.
@@ -87,7 +87,7 @@ next multimodal inference request instead of only the UI. See
 
 ## Compact tool workflow
 
-Ten Fusion tools plus two compact gateways stay in context:
+Nine Fusion tools plus three compact gateways stay in context:
 
 - `ping`
 - `get_scene_info`
@@ -98,9 +98,9 @@ Ten Fusion tools plus two compact gateways stay in context:
 - `capture_viewport`
 - `capture_model_views`
 - `create_annular_ring`
-- `create_print_in_place_gyro`
 - `find_fusion_tools`
 - `run_fusion_tool`
+- `run_fusion_sequence`
 
 Use the gateway for uncommon operations:
 
@@ -113,8 +113,8 @@ capture_viewport({"view":"isometric"})
 ### Reliable long CAD tasks
 
 Small local models often end a tool loop voluntarily even when the client limit
-is set to Max. The solution is to reduce the number of decisions, not merely
-raise the limit. Two high-level tools are therefore resident:
+is set to Max. The solution is to reduce inference round trips without taking
+design decisions away from the model. Two generic tools are therefore resident:
 
 ```text
 create_annular_ring({
@@ -124,19 +124,22 @@ create_annular_ring({
   "body_name":"Outer_Frame"
 })
 
-create_print_in_place_gyro({
-  "overall_diameter_mm":60,
-  "thickness_mm":10,
-  "ring_wall_mm":4,
-  "clearance_mm":0.6
+run_fusion_sequence({
+  "steps":[
+    {"tool":"create_sketch","arguments":{"plane":"xy"}},
+    {"tool":"draw_circle","arguments":{"radius":3}},
+    {"tool":"extrude","arguments":{"height":1,"operation":"new_body"}},
+    {"tool":"rename_body","arguments":{"body_name":"Body1","new_name":"Rotor"}}
+  ]
 })
 ```
 
-The gyro command atomically creates `Outer_Frame`, `Middle_Gimbal`, and
-`Central_Rotor` with the requested radial clearance. It uses direct annular
-profiles, so it cannot fall into the unsupported guessed-cut workflow that
-previously caused Qwen to abandon the task. Follow it with `capture_viewport`
-and `check_interference`.
+`run_fusion_sequence` does not design anything. The model chooses every tool,
+dimension, and argument. The MCP executes those dependent operations in order,
+stops on the first failure, and returns all results plus the exact failed step.
+This lets a model create novel objects without requiring another inference pass
+after every circle, extrusion, and rename. Sequences are capped at 32 operations;
+capture and exact verification should follow each meaningful batch.
 
 For a large-context model, expose every schema:
 

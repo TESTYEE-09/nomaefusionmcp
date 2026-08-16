@@ -77,7 +77,6 @@ def test_expected_tools_present():
         "draw_circle",
         "draw_line",
         "create_annular_ring",
-        "create_print_in_place_gyro",
         # features
         "extrude",
         "revolve",
@@ -199,7 +198,7 @@ def test_expected_tools_present():
 def test_compact_profile_keeps_only_high_frequency_tools():
     compact = get_compact_tool_list()
     assert {tool.name for tool in compact} == COMPACT_TOOL_NAMES
-    assert len(compact) == 10
+    assert len(compact) == 9
 
 
 def test_search_tool_definitions_finds_schema_on_demand():
