@@ -913,10 +913,22 @@ def _capture_viewport(p: dict) -> dict:
     width = p.get("width", 1280)
     height = p.get("height", 1280)
     for name, value in (("width", width), ("height", height)):
-        if isinstance(value, bool) or not isinstance(value, int) or not 64 <= value <= 4096:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 64 <= value <= 4096
+        ):
             raise ValueError(f"{name} must be an integer between 64 and 4096")
     return {
-        **_render_view({"view": "iso" if p.get("view", "isometric") == "isometric" else p.get("view"), "width": width, "height": height}),
+        **_render_view(
+            {
+                "view": "iso"
+                if p.get("view", "isometric") == "isometric"
+                else p.get("view"),
+                "width": width,
+                "height": height,
+            }
+        ),
         "view": p.get("view", "isometric"),
         "fit_to_model": bool(p.get("fit_to_model", True)),
         "design_name": "Mock Design",
@@ -924,14 +936,22 @@ def _capture_viewport(p: dict) -> dict:
 
 
 def _capture_model_views(p: dict) -> dict:
-    captures = [_capture_viewport({**p, "view": view}) for view in ("isometric", "top", "front", "right")]
+    captures = [
+        _capture_viewport({**p, "view": view})
+        for view in ("isometric", "top", "front", "right")
+    ]
     return {
         "views": [capture["view"] for capture in captures],
         "width": captures[0]["width"],
         "height": captures[0]["height"],
         "fit_to_model": bool(p.get("fit_to_model", True)),
         "images": [
-            {"view": capture["view"], "data": capture["image_base64"], "mime_type": "image/png", "bytes": capture["bytes"]}
+            {
+                "view": capture["view"],
+                "data": capture["image_base64"],
+                "mime_type": "image/png",
+                "bytes": capture["bytes"],
+            }
             for capture in captures
         ],
         "design_name": "Mock Design",

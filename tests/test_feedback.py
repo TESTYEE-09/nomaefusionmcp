@@ -119,7 +119,9 @@ class TestMockRenderView:
         assert result["fit_to_model"] is True
         assert base64.b64decode(result["image_base64"])[:8] == b"\x89PNG\r\n\x1a\n"
 
-    @pytest.mark.parametrize("key,value", [("width", 63), ("height", 4097), ("width", "1280")])
+    @pytest.mark.parametrize(
+        "key,value", [("width", 63), ("height", 4097), ("width", "1280")]
+    )
     def test_capture_viewport_rejects_invalid_dimensions(self, key, value):
         with pytest.raises(ValueError, match=key):
             mock_command("capture_viewport", {key: value})
@@ -198,8 +200,16 @@ class TestFormatResult:
         assert out[1].data == result["image_base64"]
 
     def test_capture_model_views_returns_four_image_blocks(self):
-        out = _format_result("capture_model_views", mock_command("capture_model_views", {}))
-        assert [block.type for block in out] == ["text", "image", "image", "image", "image"]
+        out = _format_result(
+            "capture_model_views", mock_command("capture_model_views", {})
+        )
+        assert [block.type for block in out] == [
+            "text",
+            "image",
+            "image",
+            "image",
+            "image",
+        ]
         assert all(block.mimeType == "image/png" for block in out[1:])
 
     def test_non_dict_result(self):

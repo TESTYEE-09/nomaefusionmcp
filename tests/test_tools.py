@@ -1,6 +1,13 @@
 """Tests for the tool registry."""
 
-from fusion360_mcp.tools import TOOLS, get_tool_by_name, get_tool_list
+from fusion360_mcp.tools import (
+    COMPACT_TOOL_NAMES,
+    TOOLS,
+    get_compact_tool_list,
+    get_tool_by_name,
+    get_tool_list,
+    search_tool_definitions,
+)
 
 
 def test_all_tools_have_required_keys():
@@ -177,14 +184,40 @@ def test_expected_tools_present():
         # utility
         "rename_body",
         # perception
-            "render_view",
-            "capture_viewport",
-            "capture_model_views",
+        "render_view",
+        "capture_viewport",
+        "capture_model_views",
     }
     missing = expected - names
     assert not missing, f"Missing tools: {missing}"
     extra = names - expected
     assert not extra, f"Unexpected tools: {extra}"
+
+
+def test_compact_profile_keeps_only_high_frequency_tools():
+    compact = get_compact_tool_list()
+    assert {tool.name for tool in compact} == COMPACT_TOOL_NAMES
+    assert len(compact) == 8
+
+
+def test_search_tool_definitions_finds_schema_on_demand():
+    matches = search_tool_definitions("parametric box")
+    assert matches[0]["name"] == "create_box_parametric"
+    assert matches[0]["inputSchema"]["required"] == ["length", "width", "height"]
+
+
+def test_search_tool_definitions_limits_output():
+    assert len(search_tool_definitions("create", limit=2)) <= 2
+
+
+def test_compact_catalog_is_under_ten_percent_of_full_catalog():
+    import json
+
+    full_chars = len(json.dumps([tool.model_dump() for tool in get_tool_list()]))
+    compact_chars = len(
+        json.dumps([tool.model_dump() for tool in get_compact_tool_list()])
+    )
+    assert compact_chars < full_chars * 0.10
 
 
 def test_all_tools_have_annotations():

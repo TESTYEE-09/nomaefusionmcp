@@ -609,8 +609,7 @@ TOOLS: list[dict] = [
                 "title": {
                     "type": "string",
                     "description": (
-                        "Heading shown on the sheet "
-                        "(default: document name)."
+                        "Heading shown on the sheet (default: document name)."
                     ),
                 },
                 "notes": {
@@ -625,9 +624,16 @@ TOOLS: list[dict] = [
                     "items": {
                         "type": "string",
                         "enum": [
-                            "iso", "iso_ne", "iso_nw", "iso_sw",
-                            "front", "back", "top", "bottom",
-                            "right", "left",
+                            "iso",
+                            "iso_ne",
+                            "iso_nw",
+                            "iso_sw",
+                            "front",
+                            "back",
+                            "top",
+                            "bottom",
+                            "right",
+                            "left",
                         ],
                     },
                     "description": (
@@ -640,9 +646,7 @@ TOOLS: list[dict] = [
                     "items": {"type": "integer"},
                     "minItems": 2,
                     "maxItems": 2,
-                    "description": (
-                        "[width, height] in pixels (default [1200, 900])."
-                    ),
+                    "description": ("[width, height] in pixels (default [1200, 900])."),
                 },
                 "output_dir": {
                     "type": "string",
@@ -670,8 +674,7 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "enum": ["stl", "step", "stp", "f3d"],
                     "description": (
-                        "Output format. Inferred from file_path extension "
-                        "if omitted."
+                        "Output format. Inferred from file_path extension if omitted."
                     ),
                 },
                 "body_name": {
@@ -706,9 +709,7 @@ TOOLS: list[dict] = [
                 },
                 "component_name": {
                     "type": "string",
-                    "description": (
-                        "Target component name (omit for root component)"
-                    ),
+                    "description": ("Target component name (omit for root component)"),
                 },
                 "units": {
                     "type": "string",
@@ -1413,7 +1414,8 @@ TOOLS: list[dict] = [
                 "origin_x": {"type": "number", "default": 0},
                 "origin_y": {"type": "number", "default": 0},
                 "origin_z": {
-                    "type": "number", "default": 0,
+                    "type": "number",
+                    "default": 0,
                     "description": "Z-offset of sketch plane (cm)",
                 },
                 "plane": {
@@ -2244,11 +2246,30 @@ TOOLS: list[dict] = [
             "properties": {
                 "view": {
                     "type": "string",
-                    "enum": ["current", "isometric", "top", "front", "right", "left", "back", "bottom"],
+                    "enum": [
+                        "current",
+                        "isometric",
+                        "top",
+                        "front",
+                        "right",
+                        "left",
+                        "back",
+                        "bottom",
+                    ],
                     "default": "isometric",
                 },
-                "width": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1280},
-                "height": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1280},
+                "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 4096,
+                    "default": 1280,
+                },
+                "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 4096,
+                    "default": 1280,
+                },
                 "fit_to_model": {"type": "boolean", "default": True},
             },
         },
@@ -2263,8 +2284,18 @@ TOOLS: list[dict] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "width": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024},
-                "height": {"type": "integer", "minimum": 64, "maximum": 4096, "default": 1024},
+                "width": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 4096,
+                    "default": 1024,
+                },
+                "height": {
+                    "type": "integer",
+                    "minimum": 64,
+                    "maximum": 4096,
+                    "default": 1024,
+                },
                 "fit_to_model": {"type": "boolean", "default": True},
             },
         },
@@ -2399,3 +2430,45 @@ def get_tool_by_name(name: str) -> dict | None:
         if t["name"] == name:
             return t
     return None
+
+
+COMPACT_TOOL_NAMES = frozenset(
+    {
+        "ping",
+        "get_scene_info",
+        "get_object_info",
+        "get_bounding_box",
+        "measure_distance",
+        "check_interference",
+        "capture_viewport",
+        "capture_model_views",
+    }
+)
+
+
+def get_compact_tool_list() -> list[types.Tool]:
+    """High-frequency tools kept resident in small-context model prompts."""
+    return [tool for tool in get_tool_list() if tool.name in COMPACT_TOOL_NAMES]
+
+
+def search_tool_definitions(query: str, limit: int = 6) -> list[dict]:
+    """Return terse, on-demand schemas for tools matching all query words."""
+    words = [word.lower() for word in query.split() if word.strip()]
+    scored = []
+    for tool in TOOLS:
+        haystack = " ".join(
+            (tool["name"], tool.get("title", ""), tool.get("description", ""))
+        ).lower()
+        if words and not all(word in haystack for word in words):
+            continue
+        score = sum(4 if word in tool["name"].lower() else 1 for word in words)
+        scored.append((score, tool["name"], tool))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [
+        {
+            "name": tool["name"],
+            "description": tool.get("description", ""),
+            "inputSchema": tool["inputSchema"],
+        }
+        for _, _, tool in scored[: max(1, min(int(limit), 12))]
+    ]

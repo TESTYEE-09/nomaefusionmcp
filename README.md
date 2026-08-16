@@ -1,315 +1,215 @@
-# Fusion360 MCP Server
+# Fusion 360 MCP with viewport vision
 
-> **Beta** — This project is under active development. APIs and tool behavior may change between releases. Use at your own discretion. Feedback and bug reports welcome via [GitHub Issues](https://github.com/faust-machines/fusion360-mcp-server/issues).
+Control Autodesk Fusion 360 from an MCP agent, capture the real viewport through
+Fusion's API, and return PNG images to a local vision model.
 
-MCP server that connects AI coding agents to Autodesk Fusion 360 for CAD automation.
-
-Tested with [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Works with any MCP-compatible client — OpenCode, Codex, Cursor, or anything that speaks the [Model Context Protocol](https://modelcontextprotocol.io).
-
-## How it works
-
-```
-Any MCP Client ←(stdio MCP)→ This Server ←(TCP :9876)→ Fusion360MCP Add-in ←(CustomEvent)→ Fusion Main Thread
+```text
+Vision model ↔ MCP stdio server ↔ TCP :9876 ↔ Fusion add-in ↔ Fusion API
+                                              └─ PNG bytes → MCP ImageContent
 ```
 
-Two components:
+The default compact profile is designed for Qwen3.8-27B Q3 and other
+small-context models. All 91 Fusion tools remain available without placing all
+91 schemas in every prompt.
 
-1. **MCP Server** (this repo) — Python process that speaks MCP protocol to Claude and forwards commands over TCP
-2. **Fusion360MCP Add-in** (installed in Fusion's AddIns folder) — runs inside Fusion 360, executes API calls safely on the main thread
+## Context reduction
 
-## Prerequisites
+| Profile | Resident tools | Qwen prompt | 5,632-token context |
+|---|---:|---:|---|
+| `compact` (default) | 10 | 1,352 tokens | Works |
+| `full` | 91 | 13,217 tokens | Rejected |
 
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Autodesk Fusion 360
-- An MCP-compatible client (Claude Code, OpenCode, Codex, Cursor, etc.)
+Compact mode reduced the tested prompt by about 90%. It keeps common inspection
+and viewport tools resident and loads uncommon schemas only when requested.
 
-## Installation
+## Install
 
-### 1. Install the Fusion 360 Add-in
+Requirements: Autodesk Fusion 360, Python 3.10+, and an MCP client. `uv` is
+recommended.
 
-**Quick install (symlink for development):**
-```bash
-./scripts/install-addon.sh
-```
+### 1. Install the Fusion add-in
 
-**Manual install:**
-```bash
-# macOS
-cp -r addon ~/Library/Application\ Support/Autodesk/Autodesk\ Fusion\ 360/API/AddIns/Fusion360MCP
+Windows PowerShell:
 
-# Windows (PowerShell)
+```powershell
 Copy-Item -Recurse addon "$env:APPDATA\Autodesk\Autodesk Fusion 360\API\AddIns\Fusion360MCP"
 ```
 
-Then start it in Fusion: **Shift+S → Add-Ins → Fusion360MCP → Run**
+macOS:
 
-You should see `[MCP] Server listening on localhost:9876` in the TEXT COMMANDS window.
+```bash
+cp -r addon ~/Library/Application\ Support/Autodesk/Autodesk\ Fusion\ 360/API/AddIns/Fusion360MCP
+```
 
-### 2. Connect your MCP client
+In Fusion, open **Shift+S → Add-Ins → Fusion360MCP → Run**. The add-in listens
+on `localhost:9876` by default.
 
-The MCP server is published on [PyPI](https://pypi.org/project/fusion360-mcp-server/) — no need to clone this repo.
+### 2. Register the MCP server
 
-#### Claude Code
+Claude Code:
 
 ```bash
 claude mcp add fusion360 -- uvx fusion360-mcp-server --mode socket
 ```
 
-#### Other MCP clients
-
-The server runs over **stdio**, so any MCP-compatible client can launch it. The command is:
-
-```
-uvx fusion360-mcp-server --mode socket
-```
-
-<details>
-<summary><strong>Cursor</strong> (~/.cursor/mcp.json)</summary>
+Generic MCP configuration:
 
 ```json
 {
   "mcpServers": {
     "fusion360": {
       "command": "uvx",
-      "args": [
-        "fusion360-mcp-server",
-        "--mode", "socket"
-      ]
+      "args": ["fusion360-mcp-server", "--mode", "socket"]
     }
   }
 }
 ```
-</details>
 
-### Cross-machine setup (LAN)
+For a local checkout:
 
-If the MCP server and Fusion 360 run on different machines (e.g. MCP server on a Mac Mini, Fusion on a Windows PC), override the bind/connect address via environment variables on **both** sides.
+```bash
+python -m pip install -e .
+python -m fusion360_mcp
+```
 
-**On the Fusion host** (where the add-in runs), bind to all interfaces before starting Fusion:
+### Unsloth Desktop
+
+Register the server using Unsloth's Python environment, for example:
+
+```text
+"C:\Users\eamon\.unsloth\studio\unsloth_studio\Scripts\python.exe" -m fusion360_mcp
+```
+
+Unsloth Desktop 0.1.800-beta required a backend patch so MCP images reach the
+next multimodal inference request instead of only the UI. See
+[UNSLOTH_INTEGRATION.md](UNSLOTH_INTEGRATION.md) and
+[`patches/unsloth-mcp-image-forwarding.patch`](patches/unsloth-mcp-image-forwarding.patch).
+
+## Compact tool workflow
+
+Ten tools stay in context:
+
+- `ping`
+- `get_scene_info`
+- `get_object_info`
+- `get_bounding_box`
+- `measure_distance`
+- `check_interference`
+- `capture_viewport`
+- `capture_model_views`
+- `find_fusion_tools`
+- `run_fusion_tool`
+
+Use the gateway for uncommon operations:
+
+```text
+find_fusion_tools({"query":"parametric box"})
+run_fusion_tool({"tool":"create_box_parametric","arguments":{...}})
+capture_viewport({"view":"isometric"})
+```
+
+For a large-context model, expose every schema:
+
+```bash
+python -m fusion360_mcp --tool-profile full
+```
+
+Or set `FUSION_MCP_TOOL_PROFILE=full`.
+
+## Viewport tools
+
+`capture_viewport` returns text metadata and a protocol-native PNG image:
+
+```json
+{
+  "view": "isometric",
+  "width": 1280,
+  "height": 1280,
+  "fit_to_model": true
+}
+```
+
+Views: `current`, `isometric`, `top`, `front`, `right`, `left`, `back`, and
+`bottom`. Dimensions must be 64–4096 pixels.
+
+`capture_model_views` returns isometric, top, front, and right images. The older
+`render_view` tool remains available in the full profile for compatibility.
+
+PNG bytes originate inside Fusion, cross the existing TCP connection as base64,
+and become MCP `ImageContent`. No shared filesystem is required, so trusted-LAN
+setups work too. Temporary PNG files are removed after encoding.
+
+## CAD decision loop
+
+The MCP instructions tell the agent to:
+
+1. Inspect the scene.
+2. Make only 1–3 geometry changes.
+3. Capture the viewport.
+4. Decide from the image.
+5. Verify with bounding boxes, distances, and interference checks.
+6. Continue only when vision and exact checks agree.
+
+Images are for placement, orientation, disconnected shapes, and visual sanity.
+Fusion measurements remain authoritative for dimensions, clearance, and
+collisions. If the model repeatedly reconsiders the same geometry, it should
+stop reasoning and inspect the viewport.
+
+## Tool coverage
+
+The full catalog covers:
+
+- Sketches, constraints, dimensions, offsets, trim, extend, and projection
+- Extrude, revolve, sweep, loft, fillet, chamfer, shell, holes, and patterns
+- Direct primitives, booleans, transforms, parameters, and appearances
+- Components, joints, rigid groups, construction geometry, and interference
+- Surface, sheet-metal, CAM, import, and STL/STEP/F3D export
+- Scene queries, physical properties, exact measurements, and code execution
+
+Use `find_fusion_tools` for an exact name and schema instead of guessing.
+
+## LAN configuration
+
+On the Fusion host:
 
 ```powershell
-# Windows
 $env:FUSION_MCP_HOST = "0.0.0.0"
 ```
 
-```bash
-# macOS / Linux
-export FUSION_MCP_HOST=0.0.0.0
-```
-
-Then start Fusion and run the `Fusion360MCP` add-in. The log line `Server listening on 0.0.0.0:9876` confirms the bind.
-
-**On the MCP-server host**, point the client at the Fusion host's LAN IP:
+On the MCP host:
 
 ```bash
-# Either via CLI flag
-uvx fusion360-mcp-server --mode socket --host 192.168.1.42
-
-# Or via env var (useful in MCP client configs)
-FUSION_MCP_HOST=192.168.1.42 uvx fusion360-mcp-server --mode socket
+python -m fusion360_mcp --host 192.168.1.42
 ```
 
-**Security note:** the TCP socket has no authentication. Only expose it on a trusted LAN — never bind to `0.0.0.0` on a host reachable from the public internet.
+The TCP socket has no authentication. Use only a trusted LAN and never expose
+port 9876 to the public internet.
 
-### 3. Verify
+## Verify and develop
 
-Call the `ping` tool from your client. If it returns `{"pong": true}`, everything is connected.
-
-### Uninstalling
-
-1. Remove the `fusion360` entry from your MCP client config
-2. Stop the add-in in Fusion (Shift+S → Add-Ins → Fusion360MCP → Stop)
-3. Delete the add-in folder from Fusion's AddIns directory
-
-## Available Tools (89)
-
-### Scene & Query
-| Tool | Description |
-|------|-------------|
-| `ping` | Health check (instant, no Fusion API) |
-| `get_scene_info` | Design name, bodies, sketches, features, camera |
-| `get_object_info` | Detailed info about a named body or sketch |
-| `get_bounding_box` | Axis-aligned bbox (min/max/size/center) for body or component; unions all bodies when called on a component |
-| `list_components` | List all components in the design |
-
-### Design Type Safety
-| Tool | Description |
-|------|-------------|
-| `get_design_type` | Check if design is in parametric or direct mode |
-| `set_design_type` | Switch design type (parametric/direct recovery) |
-
-### Sketching
-| Tool | Description |
-|------|-------------|
-| `create_sketch` | New sketch on xy/yz/xz plane, optional offset |
-| `draw_rectangle` | Rectangle in most recent sketch |
-| `draw_circle` | Circle in most recent sketch |
-| `draw_line` | Line in most recent sketch |
-| `draw_arc` | Arc (center + start + sweep angle) |
-| `draw_spline` | Fit-point or control-point spline |
-| `create_polygon` | Regular polygon (3–64 sides) |
-| `add_constraint` | Geometric constraint (coincident, parallel, tangent, etc.) |
-| `add_dimension` | Driving dimension (distance, angle, radial, diameter) |
-| `offset_curve` | Offset connected sketch curves |
-| `trim_curve` | Trim at intersections |
-| `extend_curve` | Extend to nearest intersection |
-| `project_geometry` | Project edges/bodies onto sketch plane |
-
-### Features
-| Tool | Description |
-|------|-------------|
-| `extrude` | Extrude a sketch profile |
-| `revolve` | Revolve a profile around an axis |
-| `sweep` | Sweep a profile along a path |
-| `loft` | Loft between two or more profiles |
-| `fillet` | Round edges (all/top/bottom/vertical) |
-| `chamfer` | Chamfer edges |
-| `shell` | Hollow out a body |
-| `mirror` | Mirror a body across a plane |
-| `create_hole` | Hole feature on a body face |
-| `rectangular_pattern` | Pattern in rows and columns |
-| `circular_pattern` | Pattern around an axis |
-| `create_thread` | Add threads (cosmetic or modeled) |
-| `draft_faces` | Draft/taper faces for mold release |
-| `split_body` | Split a body using a plane |
-| `split_face` | Split faces of a body |
-| `offset_faces` | Push/pull faces by a distance |
-| `scale_body` | Scale uniformly or non-uniformly |
-| `suppress_feature` | Suppress a timeline feature |
-| `unsuppress_feature` | Re-enable a suppressed feature |
-
-### Body Operations
-| Tool | Description |
-|------|-------------|
-| `move_body` | Translate a body by (x, y, z) |
-| `rename_body` | Rename a body (searches root and all components) |
-| `boolean_operation` | Join/cut/intersect two bodies |
-| `delete_all` | Clear the design |
-| `undo` | Undo last operation (with design-type safety guard) |
-
-### Direct Primitives
-| Tool | Description |
-|------|-------------|
-| `create_box` | Box (via TemporaryBRepManager, history-less) |
-| `create_box_parametric` | History-based box: sketch rectangle + dimensions + extrude. `length`/`width`/`height` accept numbers (cm) or string expressions referencing User Parameters (e.g. `"boxL"`, `"outer - 2*wall_t"`) |
-| `create_cylinder` | Cylinder |
-| `create_sphere` | Sphere |
-| `create_torus` | Torus |
-
-### Surface Operations
-| Tool | Description |
-|------|-------------|
-| `patch_surface` | Create a patch surface from boundary edges |
-| `stitch_surfaces` | Stitch surface bodies into one |
-| `thicken_surface` | Thicken a surface into a solid |
-| `ruled_surface` | Ruled surface from an edge |
-| `trim_surface` | Trim a surface with another body |
-
-### Sheet Metal
-| Tool | Description |
-|------|-------------|
-| `create_flange` | Create a flange on an edge |
-| `create_bend` | Add a bend |
-| `flat_pattern` | Create flat pattern |
-| `unfold` | Unfold specific bends |
-
-### Construction Geometry
-| Tool | Description |
-|------|-------------|
-| `create_construction_plane` | Offset, angle, midplane, 3-point, tangent |
-| `create_construction_axis` | Two-point, intersection, edge, perpendicular |
-
-### Assembly
-| Tool | Description |
-|------|-------------|
-| `create_component` | Create a sub-assembly component |
-| `add_joint` | Joint between two components |
-| `create_as_built_joint` | Joint from current positions |
-| `create_rigid_group` | Lock components together |
-
-### Inspection & Analysis
-| Tool | Description |
-|------|-------------|
-| `measure_distance` | Minimum distance between entities |
-| `measure_angle` | Angle between entities |
-| `get_physical_properties` | Mass, volume, area, center of mass |
-| `create_section_analysis` | Section plane through model |
-| `check_interference` | Detect collisions between components |
-
-### Appearance
-| Tool | Description |
-|------|-------------|
-| `set_appearance` | Assign material appearance from library |
-
-### Parameters
-| Tool | Description |
-|------|-------------|
-| `get_parameters` | List all user parameters |
-| `create_parameter` | Create a new parameter |
-| `set_parameter` | Update a parameter value |
-| `delete_parameter` | Remove a parameter |
-
-### Import / Export
-| Tool | Description |
-|------|-------------|
-| `import_mesh` | Import STL/OBJ/3MF as mesh body via `MeshBodies.addByFile()`. Unit-aware (`mm`/`cm`/`m`/`in`/`ft`). Returns the mesh name and bounding box |
-| `export_stl` | Export body as STL (supports bodies inside components) |
-| `export_step` | Export body as STEP (supports bodies inside components) |
-| `export_f3d` | Export design as Fusion archive |
-| `export` | Unified dispatcher — routes to `export_stl`/`export_step`/`export_f3d` based on explicit `format` or file-extension inference |
-
-### CAM / Manufacturing
-| Tool | Description |
-|------|-------------|
-| `cam_create_setup` | Create a manufacturing setup (milling/turning/cutting) |
-| `cam_create_operation` | Add a machining operation (face, contour, adaptive, drilling, etc.) |
-| `cam_generate_toolpath` | Generate toolpaths for operations |
-| `cam_post_process` | Post-process to G-code (fanuc, grbl, haas, etc.) |
-| `cam_list_setups` | List all manufacturing setups |
-| `cam_list_operations` | List operations in a setup |
-| `cam_get_operation_info` | Get operation details (strategy, tool, parameters) |
-
-### Code Execution
-| Tool | Description |
-|------|-------------|
-| `execute_code` | Run arbitrary Python in Fusion (REPL-style) |
-
-## MCP Protocol Features
-
-- **Tool annotations** — each tool is tagged with `readOnlyHint`, `destructiveHint`, and `idempotentHint` so MCP clients can auto-approve safe operations
-- **Resources** — `fusion360://status`, `fusion360://design`, `fusion360://parameters` for passive state inspection
-- **Resource templates** — `fusion360://body/{name}`, `fusion360://component/{name}` for dynamic entity lookup
-- **Prompts** — `create-box`, `model-threaded-bolt`, `sheet-metal-enclosure` workflow templates
-- **Structured errors** — tool results include `isError=True` when the add-in reports failures
-- **Mock mode** — `--mode mock` returns plausible test data without Fusion running (all responses include `"mode": "mock"`)
-
-## Development
+Call `ping`, then `capture_viewport`. A successful viewport result contains
+text metadata followed by an `image/png` MCP block.
 
 ```bash
-uv sync --dev       # install deps
-uv run pytest -v    # run tests (171 tests)
-uv run ruff check   # lint
+uv sync --dev
+uv run pytest -q       # 304 tests
+uv run ruff check src tests
 ```
 
-## Notes
+Tested end to end with Qwen3.8-27B Q3 plus an mmproj. The model identified
+created geometry and detected a deliberately floating cylinder in a front view;
+Fusion independently measured the 2 cm gap.
 
-- All Fusion API units are **centimeters** (Fusion's internal unit).
-- One operation per tool call. Batching multiple operations crashes the add-in.
-- Commands time out after 30 seconds.
-- Add-in logs to `~/fusion360mcp.log`.
-- The `undo` tool includes a design-type safety guard — it checks before/after and auto-redoes if the undo would switch from parametric to direct mode.
+## Troubleshooting
 
-## Acknowledgements
+- **Not connected:** start Fusion and run the Fusion360MCP add-in.
+- **Context overflow:** restart the MCP client and use the default compact profile.
+- **Image only appears in Unsloth UI:** apply the supplied Unsloth integration patch.
+- **Timeout:** close Fusion modal dialogs and retry after `get_scene_info`.
+- **Wrong spatial conclusion:** capture front/top/right views and verify exactly.
 
-Inspired by [BlenderMCP](https://github.com/ahujasid/blender-mcp) — the socket bridge architecture originated there.
-
-Also built on ideas from the existing Fusion 360 MCP ecosystem:
-- [ArchimedesCrypto/fusion360-mcp-server](https://github.com/ArchimedesCrypto/fusion360-mcp-server)
-- [Joe-Spencer/fusion-mcp-server](https://github.com/Joe-Spencer/fusion-mcp-server)
-- [JustusBraitinger/FusionMCP](https://github.com/JustusBraitinger/FusionMCP)
-- [zkbkb/fusion-mcp](https://github.com/zkbkb/fusion-mcp)
-- [mycelia1/fusion360-mcp-server](https://github.com/mycelia1/fusion360-mcp-server)
-- [sockcymbal/autodesk-fusion-mcp-python](https://github.com/sockcymbal/autodesk-fusion-mcp-python)
+Fusion API units are centimeters. Run one geometry operation per tool call.
+Add-in logs are written to `~/fusion360mcp.log`.
 
 ## License
 

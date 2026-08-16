@@ -17,21 +17,66 @@ from mcp.server.lowlevel import Server
 
 from .connection import get_connection, reset_connection
 from .mock import mock_command
-from .tools import get_tool_by_name, get_tool_list
+from .tools import (
+    get_compact_tool_list,
+    get_tool_by_name,
+    get_tool_list,
+    search_tool_definitions,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 log = logging.getLogger("fusion360_mcp.server")
 
-CAD_AGENT_INSTRUCTIONS = """For Fusion CAD work, inspect the current scene first, perform only
-a small number of geometry operations, then call capture_viewport and visually inspect the
-result. Verify dimensions and relationships with exact Fusion tools before continuing; vision
-is supplementary, never a substitute for measurements. For assemblies, moving parts, or
-print-in-place geometry use get_scene_info, get_object_info, get_bounding_box,
-measure_distance, check_interference, and capture_viewport together. If you start repeatedly
-reconsidering or replacing the same geometry in text, stop and inspect Fusion with a
-screenshot. Continue only when the screenshot and exact checks agree."""
+CAD_AGENT_INSTRUCTIONS = """Fusion CAD loop: inspect scene; make 1-3 changes;
+capture_viewport; decide from the image; verify with bbox/distance/interference;
+repeat. Images detect placement, orientation and disconnected shapes, never exact
+dimensions. If reconsidering the same shape, stop reasoning and inspect. In
+compact mode use find_fusion_tools once for a needed schema, then run_fusion_tool.
+Do not narrate routine calls."""
+
+_COMPACT_GATEWAY_TOOLS = [
+    types.Tool(
+        name="find_fusion_tools",
+        description=(
+            "Find up to 12 Fusion tools and argument schemas. Call once when a "
+            "needed tool is not listed."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Action or object, e.g. box, extrude, joint, export",
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 12, "default": 6},
+            },
+        },
+        annotations=types.ToolAnnotations(
+            readOnlyHint=True, destructiveHint=False, idempotentHint=True
+        ),
+    ),
+    types.Tool(
+        name="run_fusion_tool",
+        description=(
+            "Run any Fusion tool found with find_fusion_tools. Pass its exact "
+            "name and arguments."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["tool", "arguments"],
+            "properties": {
+                "tool": {"type": "string"},
+                "arguments": {"type": "object", "additionalProperties": True},
+            },
+        },
+        annotations=types.ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=False
+        ),
+    ),
+]
 
 
 def _send(
@@ -138,7 +183,12 @@ def _format_result(
     if not isinstance(images, list):
         image_b64 = result.get("image_base64")
         images = (
-            [{"data": image_b64, "mime_type": f"image/{result.get('image_format', 'png')}"}]
+            [
+                {
+                    "data": image_b64,
+                    "mime_type": f"image/{result.get('image_format', 'png')}",
+                }
+            ]
             if isinstance(image_b64, str) and image_b64
             else []
         )
@@ -177,7 +227,13 @@ def _format_result(
     default=lambda: int(os.environ.get("FUSION_MCP_PORT", "9876")),
     help="TCP port the Fusion 360 add-in listens on (env: FUSION_MCP_PORT)",
 )
-def main(mode: str, host: str, port: int) -> int:
+@click.option(
+    "--tool-profile",
+    type=click.Choice(["compact", "full"]),
+    default=lambda: os.environ.get("FUSION_MCP_TOOL_PROFILE", "compact"),
+    help="compact saves small-model context; full exposes all schemas",
+)
+def main(mode: str, host: str, port: int, tool_profile: str) -> int:
     """Fusion360 MCP Server — connects Claude to Fusion 360."""
 
     app = Server("fusion360-mcp-server", instructions=CAD_AGENT_INSTRUCTIONS)
@@ -186,13 +242,36 @@ def main(mode: str, host: str, port: int) -> int:
 
     @app.list_tools()
     async def list_tools() -> list[types.Tool]:
-        return get_tool_list()
+        if tool_profile == "full":
+            return get_tool_list()
+        return get_compact_tool_list() + _COMPACT_GATEWAY_TOOLS
 
     @app.call_tool()
     async def call_tool(
         name: str,
         arguments: dict,
     ) -> list[types.ContentBlock]:
+        if name == "find_fusion_tools" and tool_profile == "compact":
+            matches = search_tool_definitions(
+                str(arguments.get("query", "")), int(arguments.get("limit", 6))
+            )
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json.dumps(matches, separators=(",", ":")),
+                )
+            ]
+        if name == "run_fusion_tool" and tool_profile == "compact":
+            requested_name = arguments.get("tool")
+            requested_args = arguments.get("arguments")
+            if not isinstance(requested_name, str) or not isinstance(
+                requested_args, dict
+            ):
+                raise ValueError(
+                    "run_fusion_tool requires tool:string and arguments:object"
+                )
+            name, arguments = requested_name, requested_args
+
         tool_def = get_tool_by_name(name)
         if not tool_def:
             raise ValueError(f"Unknown tool: {name}")
