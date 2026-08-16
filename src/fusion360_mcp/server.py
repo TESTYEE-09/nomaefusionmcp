@@ -29,12 +29,14 @@ logging.basicConfig(
 )
 log = logging.getLogger("fusion360_mcp.server")
 
-CAD_AGENT_INSTRUCTIONS = """Fusion CAD loop: inspect scene; make 1-3 changes;
-capture_viewport; decide from the image; verify with bbox/distance/interference;
-repeat. Images detect placement, orientation and disconnected shapes, never exact
-dimensions. If reconsidering the same shape, stop reasoning and inspect. In
-compact mode use find_fusion_tools once for a needed schema, then run_fusion_tool.
-Do not narrate routine calls."""
+CAD_AGENT_INSTRUCTIONS = """Act, inspect, verify, repeat. Do not end a turn with
+a progress report while requested CAD work remains. Prefer resident high-level
+tools (especially create_annular_ring and create_print_in_place_gyro) over long
+sketch/cut chains. Two concentric sketch circles form an annular profile and can
+be extruded directly; no cut is required. After an error preserve successful
+geometry, inspect scene state, and retry only the failed step. Use viewport
+images for shape/orientation and Fusion measurements for exact dimensions,
+clearance, and interference. Do not narrate routine calls."""
 
 _COMPACT_GATEWAY_TOOLS = [
     types.Tool(

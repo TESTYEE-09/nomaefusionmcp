@@ -1459,6 +1459,46 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "create_annular_ring",
+        "title": "Create Annular Ring",
+        "description": (
+            "Reliably create and name one solid annular ring in a single call. "
+            "Dimensions are millimetres; no cut or target body is required."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["outer_diameter_mm", "inner_diameter_mm", "thickness_mm"],
+            "properties": {
+                "outer_diameter_mm": {"type": "number", "exclusiveMinimum": 0},
+                "inner_diameter_mm": {"type": "number", "minimum": 0},
+                "thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+                "body_name": {"type": "string", "default": "Ring"},
+                "center_x_mm": {"type": "number", "default": 0},
+                "center_y_mm": {"type": "number", "default": 0},
+                "center_z_mm": {"type": "number", "default": 0},
+            },
+        },
+    },
+    {
+        "name": "create_print_in_place_gyro",
+        "title": "Create Print-in-place Gyro",
+        "description": (
+            "Build a complete, named three-body concentric gyro/spinner in one "
+            "reliable call, with explicit radial clearance. Dimensions are mm. "
+            "Use this instead of dozens of sketch, cut, and rename calls."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "overall_diameter_mm": {"type": "number", "default": 60, "minimum": 30},
+                "thickness_mm": {"type": "number", "default": 10, "minimum": 2},
+                "ring_wall_mm": {"type": "number", "default": 4, "minimum": 1.2},
+                "clearance_mm": {"type": "number", "default": 0.6, "minimum": 0.3},
+                "clear_existing": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
         "name": "create_sphere",
         "title": "Create Sphere",
         "description": (
@@ -2442,6 +2482,8 @@ COMPACT_TOOL_NAMES = frozenset(
         "check_interference",
         "capture_viewport",
         "capture_model_views",
+        "create_annular_ring",
+        "create_print_in_place_gyro",
     }
 )
 
